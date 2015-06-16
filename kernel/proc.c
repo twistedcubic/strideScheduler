@@ -14,6 +14,9 @@ struct {
 static struct proc *initproc;
 
 int nextpid = 1;
+int curMin;
+int minPass = INT_MAX;
+int maxPass = INT_MIN;
 extern void forkret(void);
 extern void trapret(void);
 
@@ -38,13 +41,18 @@ allocproc(void)
   acquire(&ptable.lock);
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     if(p->state == UNUSED)
+    {
+      //lowerpassval();
+      
       goto found;
+    }
   release(&ptable.lock);
   return 0;
 
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
+  //p->pass = getMinPass() - 20; ////////////////////
   release(&ptable.lock);
 
   // Allocate kernel stack if possible.
@@ -67,6 +75,13 @@ found:
   p->context = (struct context*)sp;
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
+  
+  // My only changes
+  p->tickets = 10; // Default starting # of tickets
+  p->stride = LCM / 10;
+  p->pass = 0; // Dont let this float
+  p->n_schedule = 0;
+  //p->inuse = 1;
 
   return p;
 }
@@ -255,35 +270,118 @@ wait(void)
 void
 scheduler(void)
 {
-  struct proc *p;
+  struct proc *p;  
+  int croachingPass;
 
   for(;;){
     // Enable interrupts on this processor.
     sti();
-
+	
     // Loop over process table looking for process to run.
-    acquire(&ptable.lock);
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
-        continue;
+    acquire(&ptable.lock);        
+    p = getminproc();
+    croachingPass = getmaxpass();
+      
+    if(croachingPass > CONSERVATIVE_CEIL)
+      {
+      	// Fix pass values
+      	cprintf("OMG MAX PASS VALUE TRIGGERED: %d\n", maxPass);
+      	lowerpassval();
+      }
+        
+    // Switch to chosen process.  It is the process's job
+    // to release ptable.lock and then reacquire it
+    // before jumping back to us.
+    if(p != 0) // there was a runnable...
+      {
+	// Update pass and n_schedule
+	p->pass += p->stride;
+	p->n_schedule++;
+      	 
+	proc = p;
+	switchuvm(p);
+	p->state = RUNNING;
+	swtch(&cpu->scheduler, proc->context);
+	switchkvm();
 
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
-      swtch(&cpu->scheduler, proc->context);
-      proc->pass = p->pass;
-
-      switchkvm();
-
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      proc = 0;
-    }
+	// Process is done running for now.
+	// It should have changed its p->state before coming back.
+		 proc = 0;
+      }
     release(&ptable.lock);
   }
+}
+
+int getmaxpass()
+{
+	struct proc* p; // for iteration
+	int firstProc = 1;
+	int maxPass;
+	
+	for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+	{
+		if(p->state != UNUSED)
+		{
+			if(firstProc)
+			{
+				maxPass = p->pass; // Initialize
+				firstProc = 0;
+			}
+			else if(p->pass > maxPass)
+			{
+				maxPass = p->pass;
+			}
+		}
+	}
+	
+	return maxPass;
+}
+
+struct proc* getminproc()
+{
+	struct proc* p; // for iteration
+	struct proc* retProc = 0;
+	int firstProc = 1;
+	
+	for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+	{		
+	
+		if(p->state != RUNNABLE)
+		   continue;
+        
+		 if(p->state != UNUSED) // P is initialized
+		 {
+		 	if(firstProc)
+		 	{
+		 		curMin = p->pass; // Start with the first proc
+		 		retProc = p;
+		 		firstProc = 0;
+		 	}
+		 	else if(p->pass < curMin)
+		 	{
+		 		curMin = p->pass;
+		 		retProc = p;
+		 	}
+		 } 
+	}
+	
+	return retProc;
+}
+
+// Must alredy hold ptable.lock
+int lowerpassval()
+{
+	struct proc *p;
+	
+	for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+	{
+		if(p->state == UNUSED)
+			continue;
+			
+		p->pass = 0;
+	}
+	
+	return 0;
 }
 
 // Enter scheduler.  Must hold only ptable.lock

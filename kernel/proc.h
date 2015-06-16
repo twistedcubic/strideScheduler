@@ -1,5 +1,8 @@
 #ifndef _PROC_H_
 #define _PROC_H_
+#ifndef _PSTAT_H_
+#define _PSTAT_H_
+
 // Segments in proc->gdt.
 // Also known to bootasm.S and trapasm.S
 #define SEG_KCODE 1  // kernel code
@@ -9,6 +12,11 @@
 #define SEG_UDATA 5  // user data+stack
 #define SEG_TSS   6  // this process's task state
 #define NSEGS     7
+
+#define LCM	   3603600 // lcm of (10,20,30,...,150)
+#define CONSERVATIVE_CEIL 4000000000u
+#define INT_MIN	0
+#define INT_MAX	-1 
 
 // Per-CPU state
 struct cpu {
@@ -57,8 +65,17 @@ struct context {
   uint eip;
 };
 
-int lcm = 3603600;
 enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
+
+struct pstat {
+  int inuse;
+  int pid;
+  char name[16];
+  int tickets;
+  int pass;
+  int stride;
+  int n_schedule;
+};
 
 // Per-process state
 struct proc {
@@ -75,6 +92,10 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  int tickets;				 // Number of tickets proc holds
+  int pass;				 // Pass value
+  int stride;				 // Stride value
+  int n_schedule;			 // # Times scheduled
 };
 
 // Process memory is laid out contiguously, low addresses first:
@@ -84,3 +105,4 @@ struct proc {
 //   expandable heap
 
 #endif // _PROC_H_
+#endif //_PSTAT_H
