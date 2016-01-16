@@ -4,5 +4,3 @@ Implemented stride scheduler in proc.c, which allocates CPU to a process based o
 
 Additionally, implemented system calls getpinfo and settickets in sysproc.c, the former is used for user to monitor the amount of CPU time allocated, and latter for setting the tickets for a process.
 
-Partially collaborated with Matt Wiemer.
-
